@@ -2991,7 +2991,10 @@ The gap between reach and volume is the biggest opportunity in the data.</textar
       <span id="ask-thinking-label">Analysing the data…</span>
     </div>
     <div class="ask-response-wrap" id="ask-response-wrap">
-      <div class="ask-response-q" id="ask-response-q"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <div class="ask-response-q" id="ask-response-q"></div>
+        <button id="ask-clear-history" title="Clear conversation history" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.6);border-radius:6px;padding:3px 10px;font-size:11px;font-family:inherit;cursor:pointer;">↺ New chat</button>
+      </div>
       <div class="ask-response" id="ask-response"></div>
       <div id="ask-followup-chips" style="display:none;margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;"></div>
     </div>
@@ -4519,6 +4522,14 @@ ${topPostLines}
 
   // Expose for inline onclick handlers
   window.doAskPublic = doAsk;
+
+  // Clear conversation history
+  document.getElementById('ask-clear-history')?.addEventListener('click', () => {
+    chatHistory.length = 0;
+    document.getElementById('ask-response-wrap').classList.remove('show');
+    document.getElementById('ask-input').value = '';
+    document.getElementById('ask-input').focus();
+  });
 
   document.getElementById('ask-submit').addEventListener('click', () => {
     doAsk(document.getElementById('ask-input').value);
