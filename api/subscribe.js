@@ -32,7 +32,6 @@ export default async function handler(req, res) {
           Email: email,
           Type:  type || 'Subscribe',
           ...(message ? { Message: message } : {}),
-          Date:  new Date().toISOString(),
         },
       }),
     });
