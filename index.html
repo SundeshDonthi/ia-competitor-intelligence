@@ -4209,47 +4209,6 @@ document.getElementById('sca-share-li').addEventListener('click', () => {
   // --- API key management ---
   // API key lives server-side in Vercel env — never exposed to the browser
 
-  // Update toggle label based on whether key exists
-  function refreshApiUI() {
-    const key = getApiKey();
-    const label = document.getElementById('ask-api-label');
-    const keyInput = document.getElementById('ask-api-key');
-    if (label) label.textContent = key ? '🔑 Claude API key saved — click to change' : 'Add Claude API key for smarter answers';
-    if (keyInput && key) keyInput.placeholder = 'sk-ant-••••••••••••••••';
-  }
-  refreshApiUI();
-
-  document.getElementById('ask-api-toggle')?.addEventListener('click', () => {
-    const panel = document.getElementById('ask-api-panel');
-    if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-  });
-  document.getElementById('ask-api-save')?.addEventListener('click', () => {
-    const key = document.getElementById('ask-api-key').value.trim();
-    if (!key.startsWith('sk-ant-')) {
-      const st = document.getElementById('ask-api-status');
-      st.textContent = '⚠ That does not look like an Anthropic key (should start with sk-ant-)';
-      st.style.color = 'rgba(255,150,100,0.9)';
-      st.style.display = 'block';
-      return;
-    }
-    saveApiKey(key);
-    const st = document.getElementById('ask-api-status');
-    st.textContent = '✓ Key saved in your browser. Ready to use Claude.';
-    st.style.color = 'rgba(100,220,150,0.9)';
-    st.style.display = 'block';
-    refreshApiUI();
-    setTimeout(() => { document.getElementById('ask-api-panel').style.display = 'none'; }, 1500);
-  });
-  document.getElementById('ask-api-clear')?.addEventListener('click', () => {
-    clearApiKey();
-    document.getElementById('ask-api-key').value = '';
-    const st = document.getElementById('ask-api-status');
-    st.textContent = 'Key cleared. Will use built-in keyword matching.';
-    st.style.color = 'rgba(255,200,100,0.9)';
-    st.style.display = 'block';
-    refreshApiUI();
-  });
-
   // --- Build system prompt from live report data ---
   function buildSystemPrompt() {
     const D = window.D;
