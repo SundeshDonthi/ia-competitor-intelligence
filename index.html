@@ -4546,7 +4546,7 @@ ${topPostLines}
 
 
 // ── Contact form ──────────────────────────────────────────
-document.getElementById('contact-send').addEventListener('click', () => {
+document.getElementById('contact-send').addEventListener('click', async () => {
   const email = document.getElementById('contact-email').value.trim();
   const topic = document.getElementById('contact-topic').value;
   if (!email || !email.includes('@')) {
@@ -4555,7 +4555,14 @@ document.getElementById('contact-send').addEventListener('click', () => {
     setTimeout(() => document.getElementById('contact-email').style.borderColor = '', 1500);
     return;
   }
-  // Build mailto as the action (no backend needed)
+  // Save to Airtable then open mailto
+  try {
+    await fetch('/api/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, type: 'Contact', message: topic }),
+    });
+  } catch(e) { console.warn('Contact save failed:', e); }
   const subject = encodeURIComponent(`Intelligence Report — ${topic}`);
   const body = encodeURIComponent(`Hi,\n\nI reviewed the Competitor Intelligence Report and would like to discuss: ${topic}.\n\nBest,\n${email}`);
   window.location.href = `mailto:abhinash.jami@impactanalytics.co?subject=${subject}&body=${body}`;
@@ -4921,14 +4928,21 @@ Object.assign(SECTION_TITLES, {
 (function() {
   const subBtn = document.getElementById('sub-btn');
   if (!subBtn) return;
-  subBtn.addEventListener('click', () => {
+  subBtn.addEventListener('click', async () => {
     const email = document.getElementById('sub-email').value.trim();
     if (!email || !email.includes('@')) return;
-    // POST STUB — replace with real endpoint:
-    // fetch('/api/subscribe', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email}) });
+    subBtn.textContent = 'Saving…';
+    subBtn.disabled = true;
+    try {
+      await fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, type: 'Subscribe' }),
+      });
+    } catch(e) { console.warn('Subscribe save failed:', e); }
     try { localStorage.setItem('ia_subscribed', email); } catch(e) {}
     document.getElementById('sub-thanks').style.display = 'block';
-    document.getElementById('sub-btn').style.display = 'none';
+    subBtn.style.display = 'none';
   });
   // Pre-fill if already subscribed
   try {
