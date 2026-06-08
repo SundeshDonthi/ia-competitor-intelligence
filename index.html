@@ -4473,8 +4473,7 @@ ${topPostLines}
         Engagement rate: ${stat('#'+iaEngRank+' of 11')} (${s(ia?.med_eng_rate*100,3)}%)<br><br>
         Pattern: quality-over-volume. The opportunity is scaling post volume without sacrificing engagement quality.`;
     }
-    return `I couldn't match a specific answer for "<em>${q}</em>" in the dataset. Try asking about post volume, engagement rates, content formats, timing, follower growth, themes, or a specific competitor.<br><br>
-      <em>Tip: Add a Claude API key above for free-form AI answers to any question.</em>`;
+    return `I couldn't find a specific match for "<em>${q}</em>" — try rephrasing, or ask about: post volume, engagement rates, content formats, timing, follower growth, themes, or a specific competitor (e.g. "Tell me about Blue Yonder").`;
   }
 
   // --- Main ask handler ---
