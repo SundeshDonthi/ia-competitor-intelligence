@@ -29,10 +29,10 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         fields: {
-          Email:   email,
-          Type:    type || 'Subscribe',
-          Message: message || '',
-          Date:    new Date().toISOString(),
+          Email: email,
+          Type:  type || 'Subscribe',
+          ...(message ? { Message: message } : {}),
+          Date:  new Date().toISOString(),
         },
       }),
     });
