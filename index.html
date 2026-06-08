@@ -4213,45 +4213,108 @@ document.getElementById('sca-share-li').addEventListener('click', () => {
   function buildSystemPrompt() {
     const D = window.D;
     if (!D) return '';
-    const sovLines = (D.sov || []).map(x => `  ${x.company}: ${x.posts} posts, ${(x.share_pct*100).toFixed(1)}% SOV`).join('\n');
-    const engLines = (D.engagement || []).map(x => `  ${x.company}: eng_rate=${(x.med_eng_rate*100).toFixed(3)}%, med_WE=${x.med_weighted_eng}`).join('\n');
-    const followerLines = Object.entries(D.follower_info || {}).map(([co,f]) => `  ${co}: avg=${f.avg_followers}, growth=${(f.growth_pct*100).toFixed(1)}%, gained=${f.gained}`).join('\n');
-    const cadenceLines = (D.cadence || []).map(x => `  ${x.company}: active_wks=${x.active_weeks}, silent_wks=${x.silent_weeks}, std_dev=${x.std_dev?.toFixed(2)}`).join('\n');
-    const iaFmt = (D.format_engagement || []).find(x => x.company === 'Impact Analytics');
-    const fmtLines = iaFmt ? Object.entries(iaFmt).filter(([k]) => !['company'].includes(k)).map(([k,v]) => `  ${k}: count=${v?.count}, med_WE=${v?.med_we}`).join('\n') : '';
 
-    return `You are an expert analyst for Impact Analytics (IA), an AI-powered retail analytics company. You have access to a 12-month (June 2025–June 2026) LinkedIn competitive intelligence dataset covering 11 companies.
+    // Share of voice
+    const sovLines = (D.sov || []).map(x =>
+      `  ${x.company}: ${x.posts} posts, ${x.share_pct}% SOV, ${x.posts_per_week} posts/week`
+    ).join('\n');
 
-Your role: answer questions about the data concisely and insightfully. Be direct, cite specific numbers, and always ground your answers in the data below. If something is not in the data, say so clearly.
+    // Engagement
+    const engLines = (D.engagement || []).map(x =>
+      `  ${x.company}: eng_rate=${(x.med_eng_rate*100).toFixed(3)}%, med_WE=${x.med_weighted_eng}, med_likes=${x.med_likes}, med_comments=${x.med_comments}, med_reposts=${x.med_reposts}, conv_intensity=${x.conv_intensity}`
+    ).join('\n');
 
-DATASET SUMMARY:
+    // Follower info
+    const followerLines = Object.entries(D.follower_info || {}).map(([co,f]) =>
+      `  ${co}: avg_followers=${Math.round(f.avg_followers)}, growth=${f.growth_pct}% YoY, gained=${f.gained}, total_engagements=${f.engagements}`
+    ).join('\n');
 
-Share of Voice (posts + SOV %):
+    // Cadence
+    const cadenceLines = (D.cadence || []).map(x =>
+      `  ${x.company}: active_wks=${x.active_weeks}, silent_wks=${x.silent_weeks}, avg_per_wk=${x.avg_per_week}, std_dev=${x.std_dev}`
+    ).join('\n');
+
+    // Format mix (all companies)
+    const fmtMixLines = (D.format_mix || []).map(x =>
+      `  ${x.company}: Image=${x.Image}(${x.Image_pct}%), Video=${x.Video}(${x.Video_pct}%), Document=${x.Document}(${x.Document_pct}%), Article=${x.Article}(${x.Article_pct}%), Text=${x.Text}(${x.Text_pct}%), Poll=${x.Poll||0}(${x.Poll_pct||0}%)`
+    ).join('\n');
+
+    // Format engagement per company (D.fmt_eng is a dict keyed by company)
+    const fmtEngLines = Object.entries(D.fmt_eng || {}).map(([co, fmts]) =>
+      `  ${co}: ` + Object.entries(fmts).map(([fmt,v]) => `${fmt}(n=${v.count},medWE=${v.med_we})`).join(', ')
+    ).join('\n');
+
+    // Timing: day-of-week + time band breakdown (all companies)
+    const timingLines = (D.timing || []).map(x => {
+      const days = (x.day_data || []).map(d => `${d.day}:n=${d.count},medWE=${d.med_we}`).join(' | ');
+      const bands = (x.band_data || []).map(b => `${b.band}:n=${b.count},medWE=${b.med_we}`).join(' | ');
+      return `  ${x.company}:\n    Days: ${days}\n    Bands: ${bands}`;
+    }).join('\n');
+
+    // Quarterly trends
+    const quarterlyLines = (D.quarterly || []).map(x => {
+      const qs = (x.quarters || []).map(q => `${q.quarter}:posts=${q.posts},medWE=${q.med_we}`).join(' | ');
+      return `  ${x.company}: ${qs}`;
+    }).join('\n');
+
+    // Theme analysis
+    const themeLines = (D.theme_data || []).map(x => {
+      const themes = Object.entries(x.themes || {}).map(([t,v]) => `${t}(n=${v.count},${v.pct}%,medWE=${v.med_we})`).join(', ');
+      return `  ${x.company}: ${themes}`;
+    }).join('\n');
+
+    // Top performing posts
+    const topPostLines = (D.top_bottom || []).map(x => {
+      const tops = (x.top5 || []).slice(0,3).map(p => `[${p.type},WE=${p.we},likes=${p.likes},comments=${p.comments},snippet="${(p.snippet||'').slice(0,60)}"]`).join(', ');
+      return `  ${x.company}: ${tops}`;
+    }).join('\n');
+
+    return `You are an expert LinkedIn content strategist and data analyst embedded in the Impact Analytics (IA) competitive intelligence dashboard. You have full access to a 12-month (June 2025–June 2026) LinkedIn dataset covering 11 companies in the retail AI/analytics space.
+
+Your role: answer ANY question about this data directly and confidently, citing exact numbers. NEVER say data is unavailable if it appears in the sections below — all timing, day-of-week, theme, format, and engagement data is included. Be concise (3–6 sentences or a short bullet list). Use bold markdown (**text**) for key numbers and company names.
+
+COMPANIES: Centric Software, Blue Yonder, Anaplan, Board, Kinaxis, Invent Analytics, Impact Analytics, o9 Solutions, Relex Solutions, SAS, Solvoyo
+
+=== SHARE OF VOICE ===
 ${sovLines}
 
-Engagement (median engagement rate + median weighted engagement score):
+=== ENGAGEMENT ===
+WE = likes + 2×comments + 3×reposts. eng_rate = med_WE / avg_followers × 100.
 ${engLines}
 
-Follower data (avg followers, YoY growth, net gained):
+=== FOLLOWER DATA ===
 ${followerLines}
 
-Posting cadence (active weeks, silent weeks, std deviation):
+=== POSTING CADENCE ===
 ${cadenceLines}
 
-Impact Analytics format breakdown (posts + median weighted engagement per format):
-${fmtLines}
+=== FORMAT MIX (post counts + % of total) ===
+${fmtMixLines}
 
-Key context:
-- Impact Analytics (IA) is the focal company — favor IA-centric insights
-- Weighted engagement = (likes + 2×comments + 3×shares) / sqrt(followers)
-- All stats are from this dataset only — do not invent or extrapolate
-- Keep responses concise (3–6 sentences or a short bulleted list)
-- Use bold markdown (**text**) for key numbers and company names
-- If the user asks a follow-up, remember the prior question context
-- End each response with 1–2 short suggested follow-up questions the user might ask next, formatted as: \n\nFOLLOW_UPS: question1 | question2`;
+=== FORMAT ENGAGEMENT (median WE per format per company) ===
+${fmtEngLines}
+
+=== TIMING — DAY OF WEEK & TIME BAND ===
+Time bands: Early(6-9am), Morning(9am-12pm), Afternoon(12-3pm), Late(3-6pm), Evening(6pm+) UTC
+${timingLines}
+
+=== QUARTERLY TRENDS ===
+${quarterlyLines}
+
+=== THEME ANALYSIS ===
+${themeLines}
+
+=== TOP PERFORMING POSTS ===
+${topPostLines}
+
+=== RULES ===
+- Impact Analytics is the focal company — prioritize IA insights
+- All stats must come from this dataset — never hallucinate
+- If asked about timing or day-of-week, use the TIMING section — that data is present
+- End every response with: FOLLOW_UPS: question1 | question2`;
   }
 
-  // Conversation history for multi-turn context
+    // Conversation history for multi-turn context
   const chatHistory = [];
 
   // --- Claude API call (proxied through /api/ask — key is server-side only) ---
