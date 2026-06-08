@@ -4940,19 +4940,12 @@ Object.assign(SECTION_TITLES, {
         body: JSON.stringify({ email, type: 'Subscribe' }),
       });
     } catch(e) { console.warn('Subscribe save failed:', e); }
-    try { localStorage.setItem('ia_subscribed', email); } catch(e) {}
     document.getElementById('sub-thanks').style.display = 'block';
-    subBtn.style.display = 'none';
+    document.getElementById('sub-email').value = '';
+    subBtn.textContent = 'Notify me';
+    subBtn.disabled = false;
+    subBtn.style.display = 'inline-flex';
   });
-  // Pre-fill if already subscribed
-  try {
-    const saved = localStorage.getItem('ia_subscribed');
-    if (saved) {
-      document.getElementById('sub-email').value = saved;
-      document.getElementById('sub-thanks').style.display = 'block';
-      document.getElementById('sub-btn').style.display = 'none';
-    }
-  } catch(e) {}
 })();
 
 // ══════════════════════════════════════════════════════════════
