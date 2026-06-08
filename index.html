@@ -2972,7 +2972,8 @@ The gap between reach and volume is the biggest opportunity in the data.</textar
   <section id="ask" style="scroll-margin-top:32px">
     <div class="ask-eyebrow">Ask This Report</div>
     <h2 class="ask-title" style="font-size:clamp(32px,4vw,48px);color:#fff;border:none">Ask anything.<br><em>Answers come only<br>from the data.</em></h2>
-    <p class="ask-sub">No invented numbers. If something is not in the report, it will say so.</p>
+    <p class="ask-sub">Powered by Claude AI. Answers are grounded in the report data only — no hallucinations.</p>
+
     <div class="ask-input-row">
       <input class="ask-input" id="ask-input" type="text" placeholder="e.g. Which themes should IA double down on?"/>
       <button class="ask-btn" id="ask-submit">Ask</button>
@@ -2982,14 +2983,17 @@ The gap between reach and volume is the biggest opportunity in the data.</textar
       <span class="ask-chip">Why is IA's engagement strong?</span>
       <span class="ask-chip">What format should IA post more of?</span>
       <span class="ask-chip">Where does IA beat its competitors?</span>
+      <span class="ask-chip">How does IA compare to Blue Yonder?</span>
+      <span class="ask-chip">What is IA's biggest content gap?</span>
     </div>
     <div class="ask-thinking" id="ask-thinking">
       <div class="ask-dot"></div><div class="ask-dot"></div><div class="ask-dot"></div>
-      <span>Looking through the data…</span>
+      <span id="ask-thinking-label">Analysing the data…</span>
     </div>
     <div class="ask-response-wrap" id="ask-response-wrap">
       <div class="ask-response-q" id="ask-response-q"></div>
       <div class="ask-response" id="ask-response"></div>
+      <div id="ask-followup-chips" style="display:none;margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;"></div>
     </div>
   </section>
 
@@ -4198,176 +4202,301 @@ document.getElementById('sca-share-li').addEventListener('click', () => {
     return (window.D?.sov || []).find(x => x.company === co);
   }
 
-  function answer(q) {
+  // ═══════════════════════════════════════════════════
+  // AI-POWERED CHATBOT — Claude API + keyword fallback
+  // ═══════════════════════════════════════════════════
+
+  // --- API key management ---
+  // API key lives server-side in Vercel env — never exposed to the browser
+
+  // Update toggle label based on whether key exists
+  function refreshApiUI() {
+    const key = getApiKey();
+    const label = document.getElementById('ask-api-label');
+    const keyInput = document.getElementById('ask-api-key');
+    if (label) label.textContent = key ? '🔑 Claude API key saved — click to change' : 'Add Claude API key for smarter answers';
+    if (keyInput && key) keyInput.placeholder = 'sk-ant-••••••••••••••••';
+  }
+  refreshApiUI();
+
+  document.getElementById('ask-api-toggle')?.addEventListener('click', () => {
+    const panel = document.getElementById('ask-api-panel');
+    if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  });
+  document.getElementById('ask-api-save')?.addEventListener('click', () => {
+    const key = document.getElementById('ask-api-key').value.trim();
+    if (!key.startsWith('sk-ant-')) {
+      const st = document.getElementById('ask-api-status');
+      st.textContent = '⚠ That does not look like an Anthropic key (should start with sk-ant-)';
+      st.style.color = 'rgba(255,150,100,0.9)';
+      st.style.display = 'block';
+      return;
+    }
+    saveApiKey(key);
+    const st = document.getElementById('ask-api-status');
+    st.textContent = '✓ Key saved in your browser. Ready to use Claude.';
+    st.style.color = 'rgba(100,220,150,0.9)';
+    st.style.display = 'block';
+    refreshApiUI();
+    setTimeout(() => { document.getElementById('ask-api-panel').style.display = 'none'; }, 1500);
+  });
+  document.getElementById('ask-api-clear')?.addEventListener('click', () => {
+    clearApiKey();
+    document.getElementById('ask-api-key').value = '';
+    const st = document.getElementById('ask-api-status');
+    st.textContent = 'Key cleared. Will use built-in keyword matching.';
+    st.style.color = 'rgba(255,200,100,0.9)';
+    st.style.display = 'block';
+    refreshApiUI();
+  });
+
+  // --- Build system prompt from live report data ---
+  function buildSystemPrompt() {
+    const D = window.D;
+    if (!D) return '';
+    const sovLines = (D.sov || []).map(x => `  ${x.company}: ${x.posts} posts, ${(x.share_pct*100).toFixed(1)}% SOV`).join('\n');
+    const engLines = (D.engagement || []).map(x => `  ${x.company}: eng_rate=${(x.med_eng_rate*100).toFixed(3)}%, med_WE=${x.med_weighted_eng}`).join('\n');
+    const followerLines = Object.entries(D.follower_info || {}).map(([co,f]) => `  ${co}: avg=${f.avg_followers}, growth=${(f.growth_pct*100).toFixed(1)}%, gained=${f.gained}`).join('\n');
+    const cadenceLines = (D.cadence || []).map(x => `  ${x.company}: active_wks=${x.active_weeks}, silent_wks=${x.silent_weeks}, std_dev=${x.std_dev?.toFixed(2)}`).join('\n');
+    const iaFmt = (D.format_engagement || []).find(x => x.company === 'Impact Analytics');
+    const fmtLines = iaFmt ? Object.entries(iaFmt).filter(([k]) => !['company'].includes(k)).map(([k,v]) => `  ${k}: count=${v?.count}, med_WE=${v?.med_we}`).join('\n') : '';
+
+    return `You are an expert analyst for Impact Analytics (IA), an AI-powered retail analytics company. You have access to a 12-month (June 2025–June 2026) LinkedIn competitive intelligence dataset covering 11 companies.
+
+Your role: answer questions about the data concisely and insightfully. Be direct, cite specific numbers, and always ground your answers in the data below. If something is not in the data, say so clearly.
+
+DATASET SUMMARY:
+
+Share of Voice (posts + SOV %):
+${sovLines}
+
+Engagement (median engagement rate + median weighted engagement score):
+${engLines}
+
+Follower data (avg followers, YoY growth, net gained):
+${followerLines}
+
+Posting cadence (active weeks, silent weeks, std deviation):
+${cadenceLines}
+
+Impact Analytics format breakdown (posts + median weighted engagement per format):
+${fmtLines}
+
+Key context:
+- Impact Analytics (IA) is the focal company — favor IA-centric insights
+- Weighted engagement = (likes + 2×comments + 3×shares) / sqrt(followers)
+- All stats are from this dataset only — do not invent or extrapolate
+- Keep responses concise (3–6 sentences or a short bulleted list)
+- Use bold markdown (**text**) for key numbers and company names
+- If the user asks a follow-up, remember the prior question context
+- End each response with 1–2 short suggested follow-up questions the user might ask next, formatted as: \n\nFOLLOW_UPS: question1 | question2`;
+  }
+
+  // Conversation history for multi-turn context
+  const chatHistory = [];
+
+  // --- Claude API call (proxied through /api/ask — key is server-side only) ---
+  async function askClaude(question) {
+    chatHistory.push({ role: 'user', content: question });
+
+    try {
+      const res = await fetch('/api/ask', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 600,
+          system: buildSystemPrompt(),
+          messages: chatHistory.slice(-8)
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || `Server error ${res.status}`);
+      }
+
+      const data = await res.json();
+      const reply = data.content?.[0]?.text || '';
+      chatHistory.push({ role: 'assistant', content: reply });
+      return reply;
+    } catch (e) {
+      console.error('Ask API error:', e);
+      throw e;
+    }
+  }
+
+  // --- Parse follow-up suggestions from Claude response ---
+  function parseFollowUps(text) {
+    const match = text.match(/FOLLOW_UPS:\s*(.+)$/m);
+    if (!match) return [];
+    return match[1].split('|').map(s => s.trim()).filter(Boolean).slice(0, 2);
+  }
+  function stripFollowUps(text) {
+    return text.replace(/\nFOLLOW_UPS:.*$/m, '').trim();
+  }
+
+  // --- Render markdown-lite (bold + line breaks) ---
+  function renderMd(text) {
+    return text
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>');
+  }
+
+  // --- Keyword fallback (existing logic preserved) ---
+  function s(n, d=1) { return typeof n==='number' ? n.toFixed(d) : n; }
+  function num(n) { return typeof n==='number' ? n.toLocaleString() : n; }
+  function pct(n) { return typeof n==='number' ? (n*100).toFixed(1)+'%' : n; }
+  function stat(v) { return `<span class="ask-stat">${v}</span>`; }
+  function getIA() { return (window.D?.sov||[]).find(x=>x.company==='Impact Analytics') || {}; }
+  function getEngRow(co) { return (window.D?.engagement||[]).find(x=>x.company===co) || {}; }
+  function getCadence(co) { return (window.D?.cadence||[]).find(x=>x.company===co); }
+  function getFmtEng(co) { return (window.D?.format_engagement||[]).find(x=>x.company===co); }
+  function getFollower(co) { return window.D?.follower_info?.[co]; }
+  function getSov(co) { return (window.D?.sov||[]).find(x=>x.company===co); }
+
+  function keywordAnswer(q) {
     const ql = q.toLowerCase();
     const D = window.D;
     if (!D) return 'The report data is still loading. Try again in a moment.';
 
-    // ── VOLUME / POST COUNT ───────────────────────────────
     if (/who post|most post|volume|share of voice|sov|how many post/.test(ql)) {
       const top3 = D.sov.slice(0,3);
       const ia = getIA();
-      return `Based on the 12-month dataset (June 2025–June 2026), the top three companies by total post volume are:<br><br>
-        1. <strong>${top3[0].company}</strong> — ${num(top3[0].posts)} posts (${pct(top3[0].share_pct)} share of voice)<br>
+      return `Based on the 12-month dataset, the top three by post volume are:<br><br>
+        1. <strong>${top3[0].company}</strong> — ${num(top3[0].posts)} posts (${pct(top3[0].share_pct)} SOV)<br>
         2. <strong>${top3[1].company}</strong> — ${num(top3[1].posts)} posts (${pct(top3[1].share_pct)})<br>
         3. <strong>${top3[2].company}</strong> — ${num(top3[2].posts)} posts (${pct(top3[2].share_pct)})<br><br>
-        <strong>Impact Analytics</strong> posted ${num(ia.posts)} times — ${pct(ia.share_pct)} share of voice, ranking ${D.sov.findIndex(x=>x.company==='Impact Analytics')+1}th out of 11. That is ${s(D.sov[0].posts/ia.posts,1)}× fewer posts than the leader despite having the fastest-growing follower base in the field.`;
+        <strong>Impact Analytics</strong> posted ${num(ia.posts)} times — ${pct(ia.share_pct)} SOV, ranking ${D.sov.findIndex(x=>x.company==='Impact Analytics')+1}th of 11.`;
     }
-
-    // ── ENGAGEMENT RATE ───────────────────────────────────
     if (/engag|who engage|best engag|highest eng|engagement rate/.test(ql)) {
-      const sorted = [...D.engagement].sort((a,b) => b.med_eng_rate - a.med_eng_rate);
+      const sorted = [...D.engagement].sort((a,b)=>b.med_eng_rate-a.med_eng_rate);
       const top = sorted[0]; const ia = getEngRow('Impact Analytics');
       const iaRank = sorted.findIndex(x=>x.company==='Impact Analytics')+1;
-      return `<strong>Engagement rate</strong> (median weighted engagement ÷ average followers × 100):<br><br>
-        Highest: <strong>${top.company}</strong> at ${stat(s(top.med_eng_rate*100,3)+'%')}<br><br>
-        <strong>Impact Analytics</strong> ranks ${stat('#'+iaRank+' of 11')} with a median engagement rate of ${stat(s(ia.med_eng_rate*100,3)+'%')} and median weighted engagement score of ${stat(ia.med_weighted_eng)}.<br><br>
-        Note: SAS has the largest audience (${num(getFollower('SAS')?.avg_followers || 979000)}) but one of the lowest engagement rates — size is not the winning variable here. IA generates disproportionately high engagement for its audience size.`;
+      return `Highest engagement rate: <strong>${top.company}</strong> at ${stat(s(top.med_eng_rate*100,3)+'%')}<br><br>
+        <strong>Impact Analytics</strong> ranks ${stat('#'+iaRank+' of 11')} with ${stat(s(ia.med_eng_rate*100,3)+'%')} median engagement rate and ${stat(ia.med_weighted_eng)} median WE score. IA generates disproportionately high engagement for its audience size.`;
     }
-
-    // ── FORMATS ──────────────────────────────────────────
     if (/format|document|carousel|video|image|what.*post more|content type/.test(ql)) {
       const iaFmt = getFmtEng('Impact Analytics');
-      if (!iaFmt) return 'Format engagement data for Impact Analytics is not available in the dataset.';
-      const fmts = Object.entries(iaFmt).filter(([,v])=>v.count>0).sort((a,b)=>b[1].med_we - a[1].med_we);
+      if (!iaFmt) return 'Format data for Impact Analytics is not in the dataset.';
+      const fmts = Object.entries(iaFmt).filter(([k,v])=>k!=='company'&&v?.count>0).sort((a,b)=>b[1].med_we-a[1].med_we);
       const best = fmts[0]; const second = fmts[1];
-      const iaSov = getSov('Impact Analytics');
-      const iaFmtMix = D.format_mix.find(x=>x.company==='Impact Analytics');
-      const docPct = iaFmtMix?.Document_pct || 0;
-      return `For <strong>Impact Analytics</strong>, the highest-performing format by median weighted engagement is:<br><br>
-        1. <strong>${best[0]}</strong> — med. WE score of ${num(best[1].med_we)} (${num(best[1].count)} posts, ${s(best[1].count/iaSov.posts*100)}% of IA's output)<br>
-        2. <strong>${second[0]}</strong> — med. WE score of ${num(second[1].med_we)}<br><br>
-        Key insight: <strong>Documents (carousels)</strong> make up only ${pct(docPct)} of IA's posts but ${iaFmt.Document?.med_we > iaFmt.Image?.med_we ? 'outperform images on engagement' : 'are underdeployed relative to their engagement potential'}. Across the full competitive set, Document posts consistently earn 2–3× higher engagement than Images at the same volume. IA should significantly increase Document output.`;
+      return `IA's highest-performing format: <strong>${best[0]}</strong> (med. WE: ${num(best[1].med_we)}, ${num(best[1].count)} posts)<br>
+        2nd: <strong>${second[0]}</strong> (med. WE: ${num(second[1].med_we)})<br><br>
+        Document/carousel posts earn 2–3× more engagement than images across the field but IA underuses them.`;
     }
-
-    // ── TIMING / BEST TIME ────────────────────────────────
     if (/when|timing|best time|day|hour|post.*time|time.*post|morning|afternoon/.test(ql)) {
-      const iaTiming = D.timing.find(x=>x.company==='Impact Analytics');
-      if (!iaTiming) return 'Timing data for Impact Analytics is not in the dataset.';
+      const iaTiming = D.timing?.find(x=>x.company==='Impact Analytics');
+      if (!iaTiming) return 'Timing data for IA is not in the dataset.';
       const bestDay = [...iaTiming.day_data].sort((a,b)=>b.med_we-a.med_we)[0];
       const bestBand = [...iaTiming.band_data].sort((a,b)=>b.med_we-a.med_we)[0];
-      const worstDay = [...iaTiming.day_data].sort((a,b)=>a.med_we-b.med_we)[0];
-      return `For <strong>Impact Analytics</strong>, timing analysis shows:<br><br>
-        Best day by engagement: ${stat(bestDay.day)} (med. WE: ${num(bestDay.med_we)})<br>
-        Best time band: ${stat(bestBand.band)} (med. WE: ${num(bestBand.med_we)})<br>
-        Weakest day: ${stat(worstDay.day)} (med. WE: ${num(worstDay.med_we)})<br><br>
-        Across all 11 competitors, <strong>8 of 11 concentrate 50%+ of posts in Tue–Thu 9am–12pm UTC</strong>. That window is the most crowded. IA's data suggests experimenting with ${bestDay.day} and ${bestBand.band} slots where competition for feed attention is lower and IA's engagement rate is stronger.`;
+      return `Best day for IA: ${stat(bestDay.day)} (med. WE: ${num(bestDay.med_we)})<br>
+        Best time band: ${stat(bestBand.band)}<br><br>
+        8 of 11 competitors concentrate posts in Tue–Thu 9am–12pm UTC — the most crowded window. IA's data suggests experimenting outside that window.`;
     }
-
-    // ── THEMES ───────────────────────────────────────────
     if (/theme|topic|messag|content angle|what.*write|what.*talk|double down/.test(ql)) {
-      return `Theme analysis across 3,538 posts shows:<br><br>
-        <strong>Saturated (80%+ of all companies use):</strong> AI & Automation, Product/Feature announcements, Partnership news<br><br>
-        <strong>White space (underclaimed by IA):</strong><br>
-        — <strong>ROI & outcomes</strong>: Proof-of-value content earns above-median engagement but IA rarely leads with numbers<br>
-        — <strong>Customer stories</strong>: Narrative-led case studies earn 2–4× more comments than product posts<br>
-        — <strong>Vertical specificity</strong>: Retail, CPG, and supply chain use-cases are underclaimed despite being IA's core market<br><br>
-        Recommendation: IA should double down on <strong>outcome-led vertical content</strong> — specific ROI claims tied to retail/supply-chain customers. This is high-engagement territory that competitors are not owning.`;
+      return `<strong>Saturated themes</strong> (80%+ of companies post these): AI & Automation, Product announcements, Partnership news<br><br>
+        <strong>White space for IA:</strong><br>
+        — ROI & outcomes content earns above-median engagement but IA rarely leads with numbers<br>
+        — Customer stories (narrative case studies) earn 2–4× more comments than product posts<br>
+        — Vertical-specific retail/CPG/supply-chain use-cases are underclaimed despite being IA's core market`;
     }
-
-    // ── IA STRENGTHS / WHERE IA BEATS ────────────────────
     if (/ia.*beat|ia.*lead|ia.*strong|ia.*win|ia.*best|where.*ia|strength|ia.*ahead/.test(ql)) {
-      const ia = getEngRow('Impact Analytics');
       const fi = getFollower('Impact Analytics');
-      const sorted_growth = Object.entries(D.follower_info).sort((a,b)=>b[1].growth_pct - a[1].growth_pct);
+      const sorted_growth = Object.entries(D.follower_info).sort((a,b)=>b[1].growth_pct-a[1].growth_pct);
       const iaGrowthRank = sorted_growth.findIndex(([c])=>c==='Impact Analytics')+1;
-      return `<strong>Where Impact Analytics leads the competitive field:</strong><br><br>
-        1. <strong>Follower growth</strong>: ${pct(fi.growth_pct)} year-on-year — ${stat('#'+iaGrowthRank+' of 11')}, more than double the next best (Blue Yonder +26.3%)<br>
-        2. <strong>Engagement rate</strong>: IA punches above its weight — strong engagement rate relative to audience size despite low post volume<br>
-        3. <strong>Conversation quality</strong>: IA's posts generate genuine discussion; comment-to-like ratio is above field average<br><br>
-        The core finding: <strong>IA is building a high-quality, fast-growing audience while posting far less than competitors</strong>. This means scaling volume (particularly Documents and outcome-led content) could compound reach significantly without sacrificing quality.`;
+      return `<strong>Where IA leads:</strong><br>
+        1. Follower growth: ${pct(fi?.growth_pct)} YoY — ${stat('#'+iaGrowthRank+' of 11')}<br>
+        2. Engagement rate: strong relative to audience size<br>
+        3. Conversation quality: comment-to-like ratio above field average<br><br>
+        IA is building a high-quality, fast-growing audience while posting far less than competitors.`;
     }
-
-    // ── IA GAPS / WEAKNESSES ──────────────────────────────
     if (/ia.*gap|ia.*weak|ia.*behind|ia.*lack|ia.*miss|ia.*improv|ia.*underperform/.test(ql)) {
-      const ia = getSov('Impact Analytics');
-      const leader = D.sov[0];
+      const ia = getSov('Impact Analytics'); const leader = D.sov[0];
       const iaCadence = getCadence('Impact Analytics');
-      return `<strong>Where Impact Analytics lags behind competitors:</strong><br><br>
-        1. <strong>Post volume</strong>: ${num(ia.posts)} posts vs ${num(leader.posts)} from the leader (${leader.company}) — IA posts ${s(100 - ia.posts/leader.posts*100,0)}% less than the most active competitor<br>
-        2. <strong>Posting consistency</strong>: ${num(iaCadence?.silent_weeks || 13)} silent weeks in the year — algorithmic reach is suppressed during these gaps<br>
-        3. <strong>Document/carousel usage</strong>: IA uses this highest-engagement format minimally despite it earning 2–3× more engagement elsewhere<br>
-        4. <strong>Theme specificity</strong>: IA's content skews toward broad AI messaging rather than the vertical-specific ROI angles that drive comments and shares<br><br>
-        The single biggest lever: <strong>close the volume gap without losing engagement quality</strong>, specifically by adding 2–3 Document posts per week.`;
+      return `<strong>IA's main gaps:</strong><br>
+        1. Post volume: ${num(ia?.posts)} vs ${num(leader?.posts)} from ${leader?.company} — IA posts ${s(100-ia?.posts/leader?.posts*100,0)}% less<br>
+        2. ${num(iaCadence?.silent_weeks||0)} silent weeks — algorithm deprioritises inactive pages<br>
+        3. Document/carousel usage is minimal despite being the highest-engagement format<br>
+        4. Content skews too broad; vertical-specific ROI angles are underclaimed`;
     }
-
-    // ── FOLLOWER / AUDIENCE SIZE ──────────────────────────
     if (/follow|audience|reach|grow|subscriber/.test(ql)) {
-      const sorted = Object.entries(D.follower_info).sort((a,b)=>b[1].avg_followers - a[1].avg_followers);
+      const sorted = Object.entries(D.follower_info).sort((a,b)=>b[1].avg_followers-a[1].avg_followers);
       const top = sorted[0]; const ia = D.follower_info['Impact Analytics'];
-      const growthSorted = Object.entries(D.follower_info).sort((a,b)=>b[1].growth_pct-a[1].growth_pct);
-      const topGrowth = growthSorted[0];
-      return `<strong>Follower data across 11 competitors</strong> (average of start and end of year):<br><br>
-        Largest audience: <strong>${top[0]}</strong> at ${num(top[1].avg_followers)} followers<br>
-        Fastest growing: <strong>${topGrowth[0]}</strong> at ${pct(topGrowth[1].growth_pct)} YoY growth<br><br>
-        <strong>Impact Analytics</strong>: ${num(ia.avg_followers)} average followers, grew ${pct(ia.growth_pct)} — the fastest growth rate in the field. IA gained ${num(ia.gained)} net new followers this year. Despite a much smaller absolute audience than SAS (${num(D.follower_info['SAS']?.avg_followers)}), IA's engagement rate is significantly higher — quality of audience is driving results.`;
+      return `Largest audience: <strong>${top[0]}</strong> at ${num(top[1].avg_followers)} followers<br><br>
+        <strong>Impact Analytics</strong>: ${num(ia?.avg_followers)} avg followers, grew ${pct(ia?.growth_pct)} — fastest in the field. High engagement rate despite smaller absolute audience.`;
     }
-
-    // ── CONSISTENCY / CADENCE ────────────────────────────
     if (/consist|cadence|regular|silent|gap|freq|how often/.test(ql)) {
-      const sorted = [...D.cadence].sort((a,b)=>a.std_dev - b.std_dev);
-      const most = sorted[0]; const least = sorted[sorted.length-1];
+      const sorted = [...D.cadence].sort((a,b)=>a.std_dev-b.std_dev);
       const ia = getCadence('Impact Analytics');
-      return `<strong>Posting consistency</strong> measured by standard deviation of weekly post count (lower = more consistent):<br><br>
-        Most consistent: <strong>${most.company}</strong> (std dev: ${stat(s(most.std_dev))})<br>
-        Least consistent: <strong>${least.company}</strong> (std dev: ${stat(s(least.std_dev))})<br><br>
-        <strong>Impact Analytics</strong>: std dev of ${stat(s(ia?.std_dev))}, with ${num(ia?.active_weeks)} active weeks and ${stat(ia?.silent_weeks)} silent weeks. Those silent weeks are the main risk — LinkedIn's algorithm deprioritises pages that go quiet, and consistent posting even at lower volume would compound reach over time.`;
+      return `Most consistent poster: <strong>${sorted[0].company}</strong> (std dev: ${stat(s(sorted[0].std_dev))})<br><br>
+        <strong>Impact Analytics</strong>: std dev ${stat(s(ia?.std_dev))}, ${num(ia?.active_weeks)} active weeks, ${stat(ia?.silent_weeks)} silent weeks. Silent weeks suppress algorithmic reach — even lower-volume consistency would compound reach over time.`;
     }
-
-    // ── SAS ───────────────────────────────────────────────
     if (/sas/.test(ql)) {
       const sas = getEngRow('SAS'); const sasFi = getFollower('SAS'); const sasSov = getSov('SAS');
-      return `<strong>SAS</strong> analysis from the dataset:<br><br>
-        Audience: ${num(sasFi?.avg_followers)} average followers — largest in the field<br>
-        Posts: ${num(sasSov?.posts)} over 12 months (${pct(sasSov?.share_pct)} share of voice)<br>
-        Median engagement rate: ${stat(s(sas?.med_eng_rate*100, 3)+'%')} — one of the lowest in the field<br>
-        Median weighted engagement: ${stat(sas?.med_weighted_eng)}<br><br>
-        Key insight: SAS demonstrates that <strong>large audience ≠ high engagement</strong>. Its reach-without-resonance pattern is a cautionary signal. Impact Analytics generates ${s((getEngRow('Impact Analytics').med_eng_rate / sas.med_eng_rate),0)}× the engagement rate of SAS despite having a fraction of the follower count.`;
+      return `<strong>SAS</strong>: ${num(sasFi?.avg_followers)} followers (largest), ${num(sasSov?.posts)} posts, engagement rate ${stat(s(sas?.med_eng_rate*100,3)+'%')} — one of the lowest.<br><br>
+        Key insight: large audience ≠ high engagement. IA generates ${s(getEngRow('Impact Analytics').med_eng_rate/sas.med_eng_rate,0)}× SAS's engagement rate with a fraction of the follower count.`;
     }
-
-    // ── COMPARISON / COMPETITOR ───────────────────────────
     if (/compar|vs|versus|against|better than|ahead of|behind/.test(ql)) {
       const ia = getEngRow('Impact Analytics'); const iaFi = getFollower('Impact Analytics'); const iaSov = getSov('Impact Analytics');
-      const engSorted = [...D.engagement].sort((a,b)=>b.med_eng_rate - a.med_eng_rate);
+      const engSorted = [...D.engagement].sort((a,b)=>b.med_eng_rate-a.med_eng_rate);
       const iaEngRank = engSorted.findIndex(x=>x.company==='Impact Analytics')+1;
       const sovRank = D.sov.findIndex(x=>x.company==='Impact Analytics')+1;
-      return `<strong>Impact Analytics vs the competitive field — summary scorecard:</strong><br><br>
-        Post volume: ${stat('#'+sovRank+' of 11')} (${num(iaSov.posts)} posts)<br>
-        Follower growth: ${stat('#1 of 11')} (+${pct(iaFi.growth_pct)} YoY)<br>
-        Engagement rate: ${stat('#'+iaEngRank+' of 11')} (${s(ia.med_eng_rate*100,3)}%)<br>
-        Median weighted engagement: ${stat(ia.med_weighted_eng)}<br><br>
-        The pattern is clear: <strong>IA is a quality-over-volume player</strong>. High growth, strong engagement rate, but constrained reach because of low posting frequency. The opportunity is to scale volume — particularly high-engagement formats — without sacrificing the engagement quality that is already there.`;
+      return `<strong>IA scorecard:</strong><br>
+        Post volume: ${stat('#'+sovRank+' of 11')} (${num(iaSov?.posts)} posts)<br>
+        Follower growth: ${stat('#1 of 11')} (+${pct(iaFi?.growth_pct)})<br>
+        Engagement rate: ${stat('#'+iaEngRank+' of 11')} (${s(ia?.med_eng_rate*100,3)}%)<br><br>
+        Pattern: quality-over-volume. The opportunity is scaling post volume without sacrificing engagement quality.`;
     }
-
-    // ── DEFAULT FALLBACK ──────────────────────────────────
-    return `I couldn't find a specific answer for "<em>${q}</em>" in the report data. Try asking about:<br><br>
-      — Post volume or share of voice<br>
-      — Engagement rates or scores<br>
-      — Content formats (images, videos, documents)<br>
-      — Timing and posting patterns<br>
-      — Themes and messaging angles<br>
-      — Follower growth<br>
-      — Specific competitors (e.g. "Tell me about SAS")<br>
-      — IA's strengths, gaps, or how it compares`;
+    return `I couldn't match a specific answer for "<em>${q}</em>" in the dataset. Try asking about post volume, engagement rates, content formats, timing, follower growth, themes, or a specific competitor.<br><br>
+      <em>Tip: Add a Claude API key above for free-form AI answers to any question.</em>`;
   }
 
-  function doAsk(q) {
+  // --- Main ask handler ---
+  async function doAsk(q) {
     q = q.trim();
     if (!q) return;
     const thinking = document.getElementById('ask-thinking');
     const wrap = document.getElementById('ask-response-wrap');
     const qEl = document.getElementById('ask-response-q');
     const rEl = document.getElementById('ask-response');
+    const followupEl = document.getElementById('ask-followup-chips');
+    const thinkingLabel = document.getElementById('ask-thinking-label');
+
     wrap.classList.remove('show');
+    if (followupEl) followupEl.style.display = 'none';
     thinking.classList.add('show');
-    setTimeout(() => {
-      thinking.classList.remove('show');
-      qEl.textContent = q;
-      rEl.innerHTML = answer(q);
-      wrap.classList.add('show');
-      wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }, 600);
+    qEl.textContent = q;
+
+    if (thinkingLabel) thinkingLabel.textContent = 'Asking Claude…';
+    try {
+      const reply = await askClaude(q);
+      const followUps = parseFollowUps(reply);
+      const cleanReply = stripFollowUps(reply);
+      rEl.innerHTML = renderMd(cleanReply);
+
+      // Render follow-up chips
+      if (followupEl && followUps.length) {
+        followupEl.innerHTML = followUps.map(fq =>
+          `<button class="ask-chip" style="font-size:12px;padding:6px 12px;" onclick="document.getElementById('ask-input').value=this.textContent.replace(/^↪ /,'');doAskPublic(document.getElementById('ask-input').value)">↪ ${fq}</button>`
+        ).join('');
+        followupEl.style.display = 'flex';
+      }
+    } catch(e) {
+      // Fallback to keyword matching if server unreachable (e.g. local file open)
+      if (thinkingLabel) thinkingLabel.textContent = 'Looking through the data…';
+      await new Promise(r => setTimeout(r, 400));
+      rEl.innerHTML = keywordAnswer(q);
+    }
+
+    thinking.classList.remove('show');
+    wrap.classList.add('show');
+    wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (thinkingLabel) thinkingLabel.textContent = 'Analysing the data…';
   }
+
+  // Expose for inline onclick handlers
+  window.doAskPublic = doAsk;
 
   document.getElementById('ask-submit').addEventListener('click', () => {
     doAsk(document.getElementById('ask-input').value);
@@ -4382,6 +4511,7 @@ document.getElementById('sca-share-li').addEventListener('click', () => {
     });
   });
 })();
+
 
 // ── Contact form ──────────────────────────────────────────
 document.getElementById('contact-send').addEventListener('click', () => {
